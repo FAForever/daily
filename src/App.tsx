@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Share2, Clock, Copy, Swords, ChevronLeft, Lock } from 'lucide-react';
+import { Share2, Clock, Copy, Swords, Lock, ArrowRight } from 'lucide-react';
 import { UNITS, findById } from './lib/units';
 import type { Unit } from './lib/units';
 import { todayKey, puzzleNumber, msUntilNextUTCDay, formatCountdown } from './lib/daily';
@@ -11,12 +11,10 @@ import { Search } from './components/Search';
 import { GuessGrid } from './components/GuessGrid';
 import type { GuessResult } from './components/GuessGrid';
 import { ColumnGuide } from './components/ColumnGuide';
-import { UpdateBanner } from './components/UpdateBanner';
 import { UnitIcon } from './components/UnitIcon';
 
 const STORE_KEY = 'faf-daily'; // normal daily (also migrates the legacy key)
 const CHALLENGE_KEY = 'faf-daily-challenge'; // daily challenge, tracked separately
-const MODE_KEY = 'faf-daily-mode'; // which mode this browser last had open
 const DATA_URL = 'https://faforever.github.io/etfreeman-db/#/';
 
 interface Saved {
@@ -30,7 +28,7 @@ function storeKey(mode: Mode): string {
 }
 
 // Per-mode progress, kept under separate keys so switching modes never resets
-// the other one (and a refresh restores whichever you were on).
+// the other one.
 function loadSaved(mode: Mode): Saved {
   try {
     const raw =
@@ -50,16 +48,10 @@ function loadGuesses(mode: Mode): Unit[] {
   return loadSaved(mode).guesses.map(findById).filter((u): u is Unit => !!u);
 }
 
-function loadMode(): Mode {
-  try {
-    return localStorage.getItem(MODE_KEY) === 'challenge' ? 'challenge' : 'daily';
-  } catch {
-    return 'daily';
-  }
-}
-
 export default function App() {
-  const [mode, setMode] = useState<Mode>(loadMode);
+  // Every visit opens on the normal daily; the challenge is only ever entered by
+  // clicking through to it, so nobody lands in it by accident.
+  const [mode, setMode] = useState<Mode>('daily');
   const [guesses, setGuesses] = useState<Unit[]>(() => loadGuesses(mode));
   const [state, setState] = useState<DailyState | null>(null);
   const [error, setError] = useState(false);
@@ -92,17 +84,12 @@ export default function App() {
     localStorage.setItem(storeKey(mode), JSON.stringify(saved));
   }, [mode, guesses, solved]);
 
-  // Switch modes: remember the choice, load that mode's own saved progress, and
-  // clear stale board state so the effect above re-fetches for the new mode.
+  // Switch modes: load that mode's own saved progress, and clear stale board
+  // state so the effect above re-fetches for the new mode.
   const switchMode = useCallback((next: Mode) => {
     setMode(next);
     setGuesses(loadGuesses(next));
     setState(null);
-    try {
-      localStorage.setItem(MODE_KEY, next);
-    } catch {
-      /* ignore */
-    }
   }, []);
 
   useEffect(() => {
@@ -165,8 +152,6 @@ export default function App() {
   return (
     <div className="min-h-screen">
       <div className="mx-auto max-w-[1240px] px-4 py-10 sm:py-14">
-        <UpdateBanner />
-
         {/* header */}
         <header className="border-b border-line pb-5">
           <div className="flex items-start justify-between gap-4">
@@ -188,27 +173,7 @@ export default function App() {
                   : 'Guess the daily Forged Alliance unit.'}
               </p>
             </div>
-            <button
-              onClick={() => switchMode(mode === 'challenge' ? 'daily' : 'challenge')}
-              title={mode === 'challenge' ? 'Back to the normal daily' : 'Try the harder daily challenge'}
-              className={`inline-flex shrink-0 items-center gap-2 border px-3 py-2 font-mono text-[11px] font-semibold uppercase tracking-widest transition-colors ${
-                mode === 'challenge'
-                  ? 'border-line text-slate-300 hover:border-accent hover:text-accent'
-                  : 'border-accent/70 text-accent hover:bg-accent hover:text-slate-950'
-              }`}
-            >
-              {mode === 'challenge' ? (
-                <>
-                  <ChevronLeft className="h-3.5 w-3.5" strokeWidth={2.5} />
-                  FAF Daily
-                </>
-              ) : (
-                <>
-                  <Swords className="h-3.5 w-3.5" strokeWidth={2.5} />
-                  FAF Daily Challenge
-                </>
-              )}
-            </button>
+            <ModeSwitch mode={mode} onSwitch={switchMode} />
           </div>
           <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] uppercase tracking-widest text-slate-500">
             <span>
@@ -272,7 +237,17 @@ export default function App() {
               Loading your board…
             </div>
           ) : solved && answer ? (
-            <WinCard answer={answer} guesses={guesses} now={now} challenge={mode === 'challenge'} />
+            <WinCard
+              answer={answer}
+              guesses={guesses}
+              now={now}
+              challenge={mode === 'challenge'}
+              // After the normal daily, point to the challenge — unless it's
+              // already been solved today.
+              onTryChallenge={
+                mode === 'daily' && !loadSaved('challenge').solved ? () => switchMode('challenge') : undefined
+              }
+            />
           ) : (
             <Search pool={pool} onPick={onPick} />
           )}
@@ -344,6 +319,38 @@ export default function App() {
   );
 }
 
+// Both modes are always visible, with the active one filled, so it's obvious
+// that the challenge is a separate mode you can switch to.
+function ModeSwitch({ mode, onSwitch }: { mode: Mode; onSwitch: (m: Mode) => void }) {
+  const option = (m: Mode, label: string, title: string, icon?: JSX.Element) => (
+    <button
+      onClick={() => mode !== m && onSwitch(m)}
+      aria-pressed={mode === m}
+      title={title}
+      className={`inline-flex items-center gap-2 px-3 py-2 font-mono text-[11px] font-bold uppercase tracking-widest transition-colors sm:px-4 sm:py-2.5 ${
+        mode === m ? 'bg-accent text-slate-950' : 'text-slate-400 hover:bg-surface2 hover:text-slate-100'
+      }`}
+    >
+      {icon}
+      {label}
+    </button>
+  );
+  return (
+    <div className="shrink-0 text-right">
+      <p className="mb-1.5 font-mono text-[9px] uppercase tracking-[0.25em] text-slate-500">Mode</p>
+      <div className="inline-flex border border-line bg-surface p-1">
+        {option('daily', 'Daily', 'The normal daily')}
+        {option(
+          'challenge',
+          'Challenge',
+          'The harder daily challenge',
+          <Swords className="h-3.5 w-3.5" strokeWidth={2.5} />
+        )}
+      </div>
+    </div>
+  );
+}
+
 function Legend({ className, label }: { className: string; label: string }) {
   return (
     <span className="flex items-center gap-1.5">
@@ -358,11 +365,13 @@ function WinCard({
   guesses,
   now,
   challenge,
+  onTryChallenge,
 }: {
   answer: Unit;
   guesses: Unit[];
   now: number;
   challenge: boolean;
+  onTryChallenge?: () => void;
 }) {
   const left = msUntilNextUTCDay(new Date(now));
   const count = guesses.length;
@@ -422,15 +431,33 @@ function WinCard({
 
   return (
     <div className="border border-line bg-surface">
-      <div className="flex items-center gap-4 border-b border-line p-5">
+      <div className="flex flex-wrap items-center gap-4 border-b border-line p-5">
         <UnitIcon unit={answer} size={84} />
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <p className="font-mono text-[10px] uppercase tracking-widest text-emerald-400">Identified</p>
           <h2 className="mt-1 truncate text-xl font-semibold text-slate-100 sm:text-2xl">{answer.name}</h2>
           <p className="mt-0.5 truncate font-mono text-xs uppercase tracking-wide text-slate-500">
             {answer.faction} · {answer.tech} · {answer.desc}
           </p>
         </div>
+        {onTryChallenge && (
+          <div className="w-full border border-accent/60 bg-accent/[0.07] p-4 sm:w-auto sm:max-w-[360px] sm:shrink-0">
+            <p className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-accent">
+              Daily done · up next
+            </p>
+            <p className="mt-1.5 text-sm leading-relaxed text-slate-300">
+              Want a challenge? Try the <span className="font-semibold text-slate-100">Daily Challenge</span>: a
+              different unit, 2 hidden stats and 1 lie.
+            </p>
+            <button
+              onClick={onTryChallenge}
+              className="group mt-3 inline-flex w-full items-center justify-center gap-2.5 bg-accent px-4 py-2.5 font-mono text-xs font-bold uppercase tracking-widest text-slate-950 shadow-[0_0_24px_rgba(244,123,63,0.3)] transition-colors hover:bg-[#ff935c]"
+            >
+              Play the Daily Challenge
+              <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" strokeWidth={2.5} />
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-4 p-5">

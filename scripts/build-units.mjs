@@ -52,8 +52,8 @@ function weaponOf(u) {
 // Energy users whose cost isn't passive maintenance and isn't an artillery
 // weapon, so the data export shows 0 — flagged as Upkeep explicitly.
 //   air staging (refuels aircraft on energy) + a few named units.
-// (All artillery, incl. experimentals like Mavor/Scathis/Salvation, is caught
-// by the Artillery weapon category in producesOf — not listed here.)
+// (Artillery that fires on energy, incl. experimentals like Mavor/Scathis/
+// Salvation, is caught by its weapon's energy cost in producesOf — not listed here.)
 const ENERGY_UPKEEP_EXTRA = new Set([
   'UAB5202', // Air Staging — Cradle
   'UEB5202', // Air Staging — Refuel & Repair
@@ -71,9 +71,11 @@ const ENERGY_UPKEEP_EXTRA = new Set([
 //   - Buildpower: any build rate.
 //   - Upkeep: drains energy. Passive maintenance comes from the data; a few
 //     firing/activity users show 0 there and are listed in ENERGY_UPKEEP_EXTRA.
-//     Artillery fires on energy too, but a builder's own build drain already
-//     covers its mass+energy, so an artillery weapon only adds Upkeep for
-//     non-builders (keeps the Megalith on Buildpower, not Upkeep).
+//     Artillery that needs energy per shot (static and experimental artillery;
+//     the weapon carries EnergyRequired) counts too. Mobile artillery has no
+//     energy cost, so it is not flagged. A builder's own build drain already
+//     covers its mass+energy, so artillery only adds Upkeep for non-builders
+//     (keeps the Megalith on Buildpower, not Upkeep).
 function producesOf(u) {
   const e = u.Economy || {};
   const builds = (e.BuildRate || 0) > 0;
@@ -81,7 +83,11 @@ function producesOf(u) {
   if (has(u, 'MASSPRODUCTION')) r.push('Mass');
   if (has(u, 'ENERGYPRODUCTION')) r.push('Energy');
   if (builds) r.push('Buildpower');
-  const firesOnEnergy = (u.Weapon || []).some((w) => /^Artillery$/i.test(w.WeaponCategory || ''));
+  const firesOnEnergy = (u.Weapon || []).some(
+    (w) =>
+      /^Artillery$/i.test(w.WeaponCategory || '') &&
+      ((w.EnergyRequired || 0) > 0 || (w.EnergyDrainPerSecond || 0) > 0),
+  );
   const upkeep =
     (e.MaintenanceConsumptionPerSecondEnergy || 0) > 0 ||
     ENERGY_UPKEEP_EXTRA.has(u.Id) ||
